@@ -1,0 +1,20 @@
+name: Wedstrijden synchroniseren
+
+# Optioneel extraatje: elke 15 minuten de agenda's ophalen, ook als niemand de site bezoekt.
+# Zet in GitHub onder Settings, Secrets and variables, Actions twee secrets:
+#   SITE_URL     bijvoorbeeld https://rietmolen-wedstrijden.vercel.app
+#   CRON_SECRET  dezelfde waarde als de CRON_SECRET in Vercel
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Synchroniseren
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.SITE_URL }}/api/cron/sync"

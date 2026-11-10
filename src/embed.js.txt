@@ -1,0 +1,90 @@
+(function () {
+  var s = document.currentScript;
+  if (!s) return;
+  var base = new URL(s.src).origin;
+  var team = s.getAttribute('data-team') || '';
+  var limit = s.getAttribute('data-limit') || '10';
+  var target = s.getAttribute('data-target');
+  var el = target ? document.querySelector(target) : null;
+  if (!el) {
+    el = document.createElement('div');
+    s.parentNode.insertBefore(el, s);
+  }
+  el.classList.add('rm-wedstrijden');
+
+  if (!document.getElementById('rm-wedstrijden-css')) {
+    var st = document.createElement('style');
+    st.id = 'rm-wedstrijden-css';
+    st.textContent =
+      '.rm-wedstrijden{font-family:inherit;max-width:760px;display:flex;flex-direction:column;gap:12px}' +
+      '.rm-row{display:grid;grid-template-columns:104px 1fr;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 18px rgba(36,53,136,.12)}' +
+      '.rm-when{background:linear-gradient(96deg,var(--primary,#243588) 8%,var(--primary-glow,#3850c7) 92%);color:#fff;padding:14px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:.9em;line-height:1.35}' +
+      '.rm-when b{font-family:Montserrat,inherit;font-weight:900;text-transform:uppercase;font-size:1.02em;display:block;margin-bottom:2px}' +
+      '.rm-teams{display:flex;flex-direction:column;gap:6px;padding:14px 16px;color:var(--ink,#0f172a)}' +
+      '.rm-team{display:flex;align-items:center;gap:10px;font-weight:700}' +
+      '.rm-logo{width:30px;height:30px;object-fit:contain;flex:none}' +
+      '.rm-ph{width:30px;height:30px;border-radius:8px;border:1.5px dashed #9aa6d8;background:#f5f6fb;color:var(--primary,#243588);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}' +
+      '.rm-meta{font-size:.85em;color:var(--ink-soft,#35393f)}' +
+      '.rm-badge{display:inline-block;font-size:.75em;font-weight:700;padding:2px 9px;border-radius:99px;margin-left:8px;vertical-align:middle;background:#fde68a;color:#78350f}' +
+      '.rm-badge.rm-x{background:#fecaca;color:#7f1d1d}' +
+      '.rm-empty{opacity:.7;padding:12px 0}' +
+      '@media(max-width:480px){.rm-row{grid-template-columns:84px 1fr}.rm-teams{padding:12px}}';
+    document.head.appendChild(st);
+  }
+
+  function mk(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function initials(name) {
+    return String(name || '?').replace(/[^A-Za-z0-9 ]/g, '').split(' ').filter(Boolean).slice(0, 2)
+      .map(function (w) { return w[0]; }).join('').toUpperCase();
+  }
+  function side(t) {
+    var row = mk('div', 'rm-team');
+    if (t.logo) {
+      var img = mk('img', 'rm-logo');
+      img.src = t.logo;
+      img.alt = '';
+      img.loading = 'lazy';
+      row.appendChild(img);
+    } else {
+      row.appendChild(mk('span', 'rm-ph', initials(t.club)));
+    }
+    row.appendChild(mk('span', '', t.name));
+    return row;
+  }
+
+  var url = base + '/api/matches?upcoming=1&limit=' + encodeURIComponent(limit) + (team ? '&team=' + encodeURIComponent(team) : '');
+  fetch(url)
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      el.textContent = '';
+      if (!d.matches.length) {
+        el.appendChild(mk('div', 'rm-empty', 'Geen wedstrijden gepland.'));
+        return;
+      }
+      d.matches.forEach(function (m) {
+        var date = new Date(m.start);
+        var row = mk('div', 'rm-row');
+        var when = mk('div', 'rm-when');
+        when.appendChild(mk('b', '', date.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/Amsterdam' })));
+        when.appendChild(document.createTextNode(date.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })));
+        var teams = mk('div', 'rm-teams');
+        teams.appendChild(side(m.home));
+        teams.appendChild(side(m.away));
+        var meta = mk('div', 'rm-meta', m.location);
+        if (m.status === 'cancelled') meta.appendChild(mk('span', 'rm-badge rm-x', 'Afgelast'));
+        else if (m.rescheduled) meta.appendChild(mk('span', 'rm-badge', 'Verplaatst'));
+        teams.appendChild(meta);
+        row.appendChild(when);
+        row.appendChild(teams);
+        el.appendChild(row);
+      });
+    })
+    .catch(function () {
+      el.textContent = 'Wedstrijden konden niet geladen worden.';
+    });
+})();

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;800;900&family=Host+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<title>Wedstrijden beheer</title>
+<style>
+  :root { --bg:#dde2f1; --card:#fff; --ink:#0f172a; --mute:#5b6478; --line:#e2e8f0; --brand:#243588; --brand2:#3850c7; --ok:#067647; --warn:#b54708; --bad:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 "Host Grotesk", ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(96deg,#243588 8%,#3850c7 92%); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font:900 18px Montserrat, sans-serif; text-transform:uppercase; letter-spacing:-.2px; }
+  nav { display:flex; gap:4px; padding:0 20px; background:#fff; border-bottom:1px solid var(--line); overflow-x:auto; }
+  nav button { border:0; background:none; padding:12px 14px; font:inherit; cursor:pointer; color:var(--mute); border-bottom:3px solid transparent; white-space:nowrap; }
+  nav button.on { color:var(--ink); border-color:var(--brand); font-weight:600; }
+  main { max-width:980px; margin:20px auto; padding:0 16px 60px; }
+  .card { background:var(--card); border-radius:16px; padding:18px; margin-bottom:16px; box-shadow:0 4px 18px rgba(36,53,136,.10); }
+  h2 { margin:0 0 10px; font:900 15px Montserrat, sans-serif; text-transform:uppercase; color:#243588; }
+  p.hint { color:var(--mute); margin:4px 0 12px; }
+  input[type=text], input[type=url], select { font:inherit; padding:9px 11px; border:1px solid #cdd2da; border-radius:10px; background:#fff; min-width:0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .grow { flex:1 1 260px; }
+  button.btn { font:inherit; font-weight:700; padding:9px 14px; border-radius:10px; border:1px solid #cdd2da; background:#fff; cursor:pointer; }
+  button.btn:hover { background:#f2f4f7; }
+  button.primary { background:linear-gradient(96deg,#243588 8%,#3850c7 92%); border-color:#243588; color:#fff; }
+  button.primary:hover { filter:brightness(1.12); background:linear-gradient(96deg,#243588 8%,#3850c7 92%); }
+  button.danger { color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--mute); }
+  .badge { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; background:#eef0f3; color:#344054; }
+  .b-ok { background:#d1fadf; color:var(--ok); } .b-warn { background:#fef0c7; color:var(--warn); } .b-bad { background:#fee4e2; color:var(--bad); }
+  .mute { color:var(--mute); } .small { font-size:13px; }
+  .logo { width:34px; height:34px; object-fit:contain; border-radius:6px; background:#f2f4f7; }
+  .ph { width:34px; height:34px; border-radius:6px; background:#eef0f3; color:#667085; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .club { display:flex; align-items:center; gap:10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; }
+  .club-card { border:1px solid var(--line); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; background:#fff; }
+  .club-card .logo, .club-card .ph { width:52px; height:52px; }
+  pre { background:#101828; color:#e4e7ec; padding:12px; border-radius:8px; overflow:auto; font-size:13px; margin:6px 0 12px; white-space:pre-wrap; word-break:break-all; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#101828; color:#fff; padding:10px 16px; border-radius:8px; display:none; max-width:90vw; z-index:9; }
+  #toast.bad { background:var(--bad); }
+  @media (max-width:640px) { .hide-sm { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wedstrijden beheer</h1>
+  <span class="small" id="clock"></span>
+</header>
+<nav id="tabs"></nav>
+<main id="view"></main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  var state = null;
+  var tab = 'teams';
+  var matchTeam = '';
+  var clubFilter = 'all';
+  var TABS = [['teams', 'Teams en links'], ['matches', 'Wedstrijden'], ['clubs', "Clubs en logo's"], ['changes', 'Wijzigingen'], ['site', 'Website']];
+  var KIND = { 'new': 'Nieuwe wedstrijd', reschedule: 'Verplaatst', cancelled: 'Afgelast', restored: 'Hersteld', removed: 'Uit feed verdwenen', change: 'Gewijzigd' };
+  var FIELD = { start: 'aanvang', end: 'einde', location: 'locatie', summary: 'wedstrijd', description: 'omschrijving', status: 'status', feed: '', removed: '' };
+
+  function h(tag, attrs) {
+    var n = document.createElement(tag);
+    attrs = attrs || {};
+    Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k.slice(0, 2) === 'on') n.addEventListener(k.slice(2), v);
+      else if (v === true) n.setAttribute(k, '');
+      else if (v !== false && v != null) n.setAttribute(k, v);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null || c === false) continue;
+      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return n;
+  }
+
+  function toast(msg, bad) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = bad ? 'bad' : '';
+    t.style.display = 'block';
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { t.style.display = 'none'; }, bad ? 6000 : 3000);
+  }
+
+  function api(path, method, body, headers) {
+    var opts = { method: method || 'GET', headers: Object.assign({ 'x-requested-with': 'rietmolen-admin' }, headers || {}), credentials: 'same-origin' };
+    if (body !== undefined) {
+      if (body instanceof Blob) opts.body = body;
+      else { opts.body = JSON.stringify(body); opts.headers['content-type'] = 'application/json'; }
+    }
+    return fetch('/admin/api' + path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Er ging iets mis (' + r.status + ')');
+        return d;
+      });
+    });
+  }
+
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  function ago(iso) {
+    if (!iso) return 'nog nooit';
+    var s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+    if (s < 90) return 'zojuist';
+    if (s < 3600) return Math.round(s / 60) + ' min geleden';
+    if (s < 86400) return Math.round(s / 3600) + ' uur geleden';
+    return Math.round(s / 86400) + ' dagen geleden';
+  }
+  function initials(n) {
+    return String(n || '?').replace(/[^A-Za-z0-9 ]/g, '').split(' ').filter(Boolean).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase();
+  }
+  function logoEl(side) {
+    if (side.logo) return h('img', { class: 'logo', src: side.logo, alt: '' });
+    return h('div', { class: 'ph', text: initials(side.club) });
+  }
+
+  function load() {
+    return api('/state').then(function (s) { state = s; render(); }).catch(function (e) { toast(e.message, true); });
+  }
+
+  function render() {
+    var nav = document.getElementById('tabs');
+    nav.textContent = '';
+    TABS.forEach(function (t) {
+      nav.appendChild(h('button', { class: tab === t[0] ? 'on' : '', text: t[1], onclick: function () { tab = t[0]; render(); } }));
+    });
+    var view = document.getElementById('view');
+    view.textContent = '';
+    if (!state) return;
+    var fn = { teams: viewTeams, matches: viewMatches, clubs: viewClubs, changes: viewChanges, site: viewSite }[tab];
+    fn(view);
+  }
+
+  // ------------------------------------------------------------ teams
+  function statusBadge(t) {
+    if (!t.active) return h('span', { class: 'badge', text: 'Gepauzeerd' });
+    if (t.status === 'error') return h('span', { class: 'badge b-bad', text: 'Fout' });
+    if (t.status === 'warning') return h('span', { class: 'badge b-warn', text: 'Let op' });
+    if (t.status === 'ok') return h('span', { class: 'badge b-ok', text: 'Actueel' });
+    return h('span', { class: 'badge', text: 'Nog niet opgehaald' });
+  }
+
+  function viewTeams(view) {
+    var url = h('input', { type: 'url', class: 'grow', placeholder: 'Plak hier de iCal-link van voetbal.nl (https://data.sportlink.com/ical-team?token=...)' });
+    var name = h('input', { type: 'text', placeholder: 'Teamnaam (optioneel)', style: 'width:200px' });
+    var add = h('button', { class: 'btn primary', text: 'Toevoegen en ophalen', onclick: function () {
+      if (!url.value.trim()) return;
+      add.disabled = true;
+      api('/teams', 'POST', { url: url.value, name: name.value }).then(function (d) {
+        toast(d.sync.ok ? 'Toegevoegd: ' + d.sync.name + ', ' + d.sync.inserted + ' wedstrijden' : 'Toegevoegd, maar ophalen mislukte: ' + d.sync.error, !d.sync.ok);
+        return load();
+      }).catch(function (e) { toast(e.message, true); }).then(function () { add.disabled = false; });
+    } });
+    view.appendChild(h('div', { class: 'card' },
+      h('h2', { text: 'Team toevoegen' }),
+      h('p', { class: 'hint', text: 'Elke link wordt automatisch elke 15 minuten opgehaald. Verplaatste, afgelaste en nieuwe wedstrijden worden herkend en bijgehouden.' }),
+      h('div', { class: 'row' }, url, name, add)));
+
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Teams (' + state.teams.length + ')' }));
+    if (!state.teams.length) card.appendChild(h('p', { class: 'mute', text: 'Nog geen teams. Plak hierboven je eerste link.' }));
+    else {
+      var sync = h('button', { class: 'btn', text: 'Alles nu synchroniseren', onclick: function () {
+        sync.disabled = true;
+        api('/sync', 'POST', {}).then(function (d) {
+          var bad = d.results.filter(function (r) { return !r.ok; }).length;
+          toast(bad ? bad + ' team(s) met fout' : 'Alles bijgewerkt', !!bad);
+          return load();
+        }).catch(function (e) { toast(e.message, true); }).then(function () { sync.disabled = false; });
+      } });
+      card.appendChild(h('div', { class: 'row', style: 'margin-bottom:8px' }, sync));
+      var tb = h('tbody');
+      state.teams.forEach(function (t) {
+        var nameInput = h('input', { type: 'text', value: t.name, style: 'width:100%;min-width:120px', onchange: function () {
+          api('/teams/' + t.id, 'PATCH', { name: nameInput.value }).then(function () { toast('Naam opgeslagen'); return load(); }).catch(function (e) { toast(e.message, true); });
+        } });
+        var info = h('div', { class: 'small mute', text: 'Laatst: ' + ago(t.lastSyncAt) + (t.lastOkAt && t.status === 'error' ? ' (laatst gelukt ' + ago(t.lastOkAt) + ')' : '') });
+        var cell = h('td', {}, statusBadge(t), info);
+        if (t.error) cell.appendChild(h('div', { class: 'small', style: 'color:var(--bad)', text: t.error }));
+        tb.appendChild(h('tr', {},
+          h('td', {}, nameInput, h('div', { class: 'small mute hide-sm', style: 'word-break:break-all', text: t.url })),
+          h('td', { text: String(t.matchCount) }),
+          cell,
+          h('td', {}, h('div', { class: 'row' },
+            h('button', { class: 'btn', text: 'Ophalen', onclick: function (ev) {
+              ev.target.disabled = true;
+              api('/sync', 'POST', { teamId: t.id }).then(function (d) {
+                var r = d.results[0];
+                toast(r.ok ? r.name + ': ' + r.inserted + ' nieuw, ' + r.updated + ' gewijzigd, ' + r.removed + ' verdwenen' : r.error, !r.ok);
+                return load();
+              }).catch(function (e) { toast(e.message, true); });
+            } }),
+            h('button', { class: 'btn', text: t.active ? 'Pauzeer' : 'Hervat', onclick: function () {
+              api('/teams/' + t.id, 'PATCH', { active: !t.active }).then(load).catch(function (e) { toast(e.message, true); });
+            } }),
+            h('button', { class: 'btn danger', text: 'Verwijder', onclick: function () {
+              if (!confirm('Team "' + t.name + '" en alle bijbehorende wedstrijden verwijderen?')) return;
+              api('/teams/' + t.id, 'DELETE').then(load).catch(function (e) { toast(e.message, true); });
+            } })))));
+      });
+      card.appendChild(h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Team' }), h('th', { text: 'Wedstrijden' }), h('th', { text: 'Status' }), h('th', { text: '' }))), tb));
+    }
+    view.appendChild(card);
+  }
+
+  // ------------------------------------------------------------ wedstrijden
+  function viewMatches(view) {
+    var sel = h('select', { onchange: function () { matchTeam = sel.value; render(); } }, h('option', { value: '', text: 'Alle teams' }));
+    state.teams.forEach(function (t) { sel.appendChild(h('option', { value: String(t.id), text: t.name, selected: String(t.id) === matchTeam })); });
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Wedstrijden' }), h('div', { class: 'row', style: 'margin-bottom:10px' }, sel), h('p', { class: 'mute', text: 'Laden...' }));
+    view.appendChild(card);
+    api('/matches' + (matchTeam ? '?team=' + matchTeam : '')).then(function (d) {
+      card.removeChild(card.lastChild);
+      if (!d.matches.length) { card.appendChild(h('p', { class: 'mute', text: 'Geen wedstrijden.' })); return; }
+      var tb = h('tbody');
+      d.matches.forEach(function (m) {
+        var badges = h('div');
+        if (m.status === 'cancelled') badges.appendChild(h('span', { class: 'badge b-bad', text: 'Afgelast' }));
+        if (m.status === 'removed') badges.appendChild(h('span', { class: 'badge b-warn', text: 'Uit feed verdwenen' }));
+        if (m.rescheduled) badges.appendChild(h('span', { class: 'badge b-warn', title: 'Was ' + fmtDate(m.previousStart), text: 'Verplaatst' }));
+        tb.appendChild(h('tr', { style: m.status === 'removed' ? 'opacity:.55' : '' },
+          h('td', { text: fmtDate(m.start) }),
+          h('td', {}, h('div', { class: 'club' }, logoEl(m.home), h('span', { text: m.home.name })), h('div', { class: 'club', style: 'margin-top:4px' }, logoEl(m.away), h('span', { text: m.away.name }))),
+          h('td', { class: 'small hide-sm', text: m.location }),
+          h('td', {}, badges)));
+      });
+      card.appendChild(h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Aanvang' }), h('th', { text: 'Wedstrijd' }), h('th', { class: 'hide-sm', text: 'Locatie' }), h('th', { text: '' }))), tb));
+    }).catch(function (e) { toast(e.message, true); });
+  }
+
+  // ------------------------------------------------------------ clubs
+  function resizeImage(file, max) {
+    return new Promise(function (resolve, reject) {
+      if (file.type === 'image/svg+xml') return resolve(file);
+      var img = new Image();
+      var u = URL.createObjectURL(file);
+      img.onload = function () {
+        var scale = Math.min(1, max / Math.max(img.width, img.height));
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(u);
+        c.toBlob(function (b) { b ? resolve(b) : reject(new Error('Afbeelding verwerken mislukt')); }, 'image/png');
+      };
+      img.onerror = function () { reject(new Error('Dit bestand is geen geldige afbeelding')); };
+      img.src = u;
+    });
+  }
+
+  function viewClubs(view) {
+    var missing = state.clubs.filter(function (c) { return !c.hasLogo; }).length;
+    var filter = h('select', { onchange: function () { clubFilter = filter.value; render(); } },
+      h('option', { value: 'all', text: 'Alle clubs (' + state.clubs.length + ')', selected: clubFilter === 'all' }),
+      h('option', { value: 'missing', text: 'Zonder logo (' + missing + ')', selected: clubFilter === 'missing' }));
+    var card = h('div', { class: 'card' }, h('h2', { text: "Clubs en logo's" }),
+      h('p', { class: 'hint', text: "Clubs verschijnen vanzelf zodra ze in een wedstrijd voorkomen. Een club geldt voor alle teams ervan (Vorden 5 en Vorden 6 delen dus een logo). Upload een PNG, JPG, WebP of SVG." }),
+      h('div', { class: 'row', style: 'margin-bottom:12px' }, filter));
+    var grid = h('div', { class: 'grid' });
+    state.clubs.filter(function (c) { return clubFilter === 'all' || !c.hasLogo; }).forEach(function (c) {
+      var file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', style: 'display:none', onchange: function () {
+        var f = file.files[0];
+        if (!f) return;
+        resizeImage(f, 256).then(function (blob) {
+          return api('/clubs/' + c.id + '/logo', 'PUT', blob, { 'content-type': blob.type || f.type });
+        }).then(function () { toast('Logo opgeslagen'); return load(); }).catch(function (e) { toast(e.message, true); });
+      } });
+      var nameIn = h('input', { type: 'text', value: c.display, onchange: function () {
+        api('/clubs/' + c.id, 'PATCH', { display: nameIn.value }).then(function () { toast('Naam opgeslagen'); return load(); }).catch(function (e) { toast(e.message, true); });
+      } });
+      grid.appendChild(h('div', { class: 'club-card' },
+        h('div', { class: 'club' },
+          c.hasLogo ? h('img', { class: 'logo', src: '/logo/' + c.id + '?v=' + c.version, alt: '' }) : h('div', { class: 'ph', text: initials(c.display) }),
+          h('div', { style: 'flex:1;min-width:0' }, nameIn, h('div', { class: 'small mute', text: c.matchCount + ' wedstrijden' }))),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', text: c.hasLogo ? 'Vervang logo' : 'Upload logo', onclick: function () { file.click(); } }),
+          c.hasLogo ? h('button', { class: 'btn danger', text: 'Verwijder', onclick: function () {
+            api('/clubs/' + c.id + '/logo', 'DELETE').then(load).catch(function (e) { toast(e.message, true); });
+          } }) : null,
+          file)));
+    });
+    if (!grid.children.length) card.appendChild(h('p', { class: 'mute', text: 'Niets te tonen.' }));
+    card.appendChild(grid);
+    view.appendChild(card);
+  }
+
+  // ------------------------------------------------------------ wijzigingen
+  function viewChanges(view) {
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Laatste wijzigingen' }),
+      h('p', { class: 'hint', text: 'Elke wijziging die uit voetbal.nl komt, zoals een verplaatsing of afgelasting. De eerste keer ophalen van een team wordt niet als wijziging gelogd.' }));
+    if (!state.changes.length) card.appendChild(h('p', { class: 'mute', text: 'Nog geen wijzigingen.' }));
+    else {
+      var tb = h('tbody');
+      state.changes.forEach(function (c) {
+        var detail = '';
+        if (c.field === 'start' || c.field === 'end') detail = (c.old ? fmtDate(c.old) : '') + (c.old && c.new ? ' naar ' : '') + (c.new ? fmtDate(c.new) : '');
+        else if (c.kind === 'removed') detail = 'stond op ' + fmtDate(c.old);
+        else detail = (c.old ? c.old : '') + (c.old && c.new ? ' naar ' : '') + (c.new || '');
+        var cls = c.kind === 'cancelled' || c.kind === 'removed' ? 'b-bad' : c.kind === 'new' || c.kind === 'restored' ? 'b-ok' : 'b-warn';
+        tb.appendChild(h('tr', {},
+          h('td', { class: 'small mute', text: ago(c.at) }),
+          h('td', {}, h('span', { class: 'badge ' + cls, text: KIND[c.kind] || c.kind }), FIELD[c.field] ? h('span', { class: 'small mute', text: ' ' + FIELD[c.field] }) : null),
+          h('td', {}, h('div', { text: c.label }), h('div', { class: 'small mute', text: detail })),
+          h('td', { class: 'small mute hide-sm', text: c.team || '' })));
+      });
+      card.appendChild(h('table', {}, tb));
+    }
+    view.appendChild(card);
+  }
+
+  // ------------------------------------------------------------ website
+  function viewSite(view) {
+    var o = location.origin;
+    function snippet(title, code, hint) {
+      var copy = h('button', { class: 'btn', text: 'Kopieer', onclick: function () {
+        navigator.clipboard.writeText(code).then(function () { toast('Gekopieerd'); }, function () { toast('Kopieren mislukt', true); });
+      } });
+      return h('div', {}, h('div', { class: 'row', style: 'justify-content:space-between' }, h('b', { text: title }), copy),
+        hint ? h('div', { class: 'small mute', text: hint }) : null, h('pre', { text: code }));
+    }
+    var first = state.teams[0];
+    view.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Koppelen met de clubwebsite' }),
+      h('p', { class: 'hint', text: 'Deze adressen zijn openbaar en bevatten nooit je voetbal.nl-links. De feed ververst zichzelf; de website hoeft niets bij te houden.' }),
+      snippet('Widget op een pagina (met logo\'s)', '<script src="' + o + '/embed.js" data-team="' + (first ? first.id : '') + '" data-limit="10"><' + '/script>', 'Weglaten van data-team toont alle teams door elkaar.'),
+      snippet('Alle wedstrijden als JSON', o + '/api/matches?upcoming=1', 'Voor eigen weergave. Filter met ?team=ID, ?from=2026-11-01T00:00:00Z, ?limit=20'),
+      snippet('Agenda-abonnement (alle teams)', o + '/feed.ics', 'Spelers en ouders kunnen dit in Google Agenda, Apple Agenda of Outlook abonneren.')));
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Per team' }));
+    var tb = h('tbody');
+    state.teams.forEach(function (t) {
+      tb.appendChild(h('tr', {}, h('td', { text: t.name }), h('td', { class: 'small', style: 'word-break:break-all' }, h('a', { href: '/feed.ics?team=' + t.id, text: o + '/feed.ics?team=' + t.id })), h('td', { class: 'small', text: 'team-ID ' + t.id })));
+    });
+    card.appendChild(h('table', {}, tb));
+    view.appendChild(card);
+  }
+
+  setInterval(function () { document.getElementById('clock').textContent = new Date().toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam', weekday: 'long', hour: '2-digit', minute: '2-digit' }); }, 1000);
+  load();
+})();
+</script>
+</body>
+</html>
